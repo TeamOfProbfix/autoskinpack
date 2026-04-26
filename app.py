@@ -12,6 +12,10 @@ HTML_TEMPLATE = '''
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Skin Pack Generator Pro ⚙️</title>
+    
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link rel="shortcut icon" type="image/png" href="/static/favicon.png">
+    
     <style>
         :root {
             --bg-grad: radial-gradient(circle at top, #1e1b4b, #020617);
@@ -62,7 +66,7 @@ HTML_TEMPLATE = '''
             padding: 10px; border-radius: 12px; margin-bottom: 8px; border: 1px solid var(--border);
         }
         .skin-item img { width: 40px; height: 40px; border-radius: 5px; image-rendering: pixelated; background: #222; }
-        .skin-item input { flex: 1; padding: 8px; font-size: 13px; background: rgba(0,0,0,0.5); border: 1px solid var(--border); }
+        .skin-item input { flex: 1; padding: 8px; font-size: 13px; background: rgba(0,0,0,0.5); border: 1px solid var(--border); color: white;}
 
         .btn-group { display: flex; gap: 8px; margin-top: 10px; }
         .btn-small { flex: 1; padding: 10px; font-size: 11px; border-radius: 10px; border: 1px solid var(--border); background: var(--card-bg); color: white; cursor: pointer; transition: 0.2s; }
@@ -105,24 +109,28 @@ HTML_TEMPLATE = '''
         <div class="grid">
             <div class="input-group">
                 <label>Pack Name</label>
-                <input type="text" id="packName" placeholder="My Skins" oninput="updateManifest()">
+                <input type="text" id="packName" placeholder="My Skins" oninput="updateAll()">
             </div>
             <div class="input-group">
                 <label>Version</label>
-                <input type="text" id="packVer" value="1,0,0" oninput="updateManifest()">
+                <input type="text" id="packVer" value="1,0,0" oninput="updateAll()">
             </div>
         </div>
 
         <div class="input-group">
             <label>Description</label>
-            <input type="text" id="packDesc" placeholder="Enter pack description..." oninput="updateManifest()">
+            <input type="text" id="packDesc" placeholder="Enter pack description..." oninput="updateAll()">
         </div>
 
         <div class="input-group">
             <label>Min Engine Version</label>
-            <select id="minEngine" onchange="updateManifest()">
-                <option value="1,26,3">1.26.3</option>
+            <select id="minEngine" onchange="updateAll()">
+                <option value="1,26,3" selected>1.26.3</option>
+                <option value="1,26,0">1.26.0</option>
                 <option value="1,21,0">1.21.0</option>
+                <option value="1,20,0">1.20.0</option>
+                <option value="1,19,0">1.19.0</option>
+                <option value="1,18,0">1.18.0</option>
                 <option value="1,17,0">1.17.0</option>
             </select>
         </div>
@@ -171,6 +179,8 @@ HTML_TEMPLATE = '''
     </div>
 </div>
 
+<canvas id="detCanvas" style="display:none;"></canvas>
+
 <script>
     let selectedFiles = [];
     let backupFiles = [];
@@ -181,14 +191,42 @@ HTML_TEMPLATE = '''
     function setTheme(t) { document.body.className = t + '-theme'; toggleMenu(); }
     function toggleView(id) { const el = document.getElementById(id); el.style.display = el.style.display === 'none' ? 'block' : 'none'; }
 
-    function handleFiles(files) {
+    async function handleFiles(files) {
         for (let file of files) {
-            selectedFiles.push({ file: file, name: file.name.replace('.png', ''), url: URL.createObjectURL(file) });
+            const geo = await detectGeometry(file);
+            selectedFiles.push({ 
+                file: file, 
+                name: file.name.replace('.png', ''), 
+                url: URL.createObjectURL(file),
+                geometry: geo
+            });
         }
         renderList();
     }
 
-    function clearSkins() { backupFiles = [...selectedFiles]; selectedFiles = []; renderList(); }
+    // Logic to detect Slim (Alex) vs Classic (Steve) in Browser
+    function detectGeometry(file) {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = function() {
+                if (img.width !== 64 || img.height !== 64) {
+                    resolve("geometry.humanoid.custom");
+                    return;
+                }
+                const cvs = document.getElementById('detCanvas');
+                cvs.width = 64; cvs.height = 64;
+                const ctx = cvs.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                // Check pixel at (54, 20) for transparency
+                const pixel = ctx.getImageData(54, 20, 1, 1).data;
+                if (pixel[3] === 0) resolve("geometry.humanoid.customSlim");
+                else resolve("geometry.humanoid.custom");
+            };
+            img.src = URL.createObjectURL(file);
+        });
+    }
+
+    function clearSkins() { if(selectedFiles.length > 0) backupFiles = [...selectedFiles]; selectedFiles = []; renderList(); }
     function restoreSkins() { if(backupFiles.length > 0) { selectedFiles = [...backupFiles]; renderList(); } }
 
     function renderList() {
@@ -199,22 +237,27 @@ HTML_TEMPLATE = '''
             div.className = 'skin-item';
             div.innerHTML = `
                 <img src="${item.url}">
-                <input type="text" value="${item.name}" oninput="selectedFiles[${i}].name = this.value; updateSkinsJson()">
+                <input type="text" value="${item.name}" oninput="selectedFiles[${i}].name = this.value; updateAll()">
                 <button onclick="selectedFiles.splice(${i},1); renderList()" style="background:none; border:none; color:#ff4444; cursor:pointer">✕</button>
             `;
             list.appendChild(div);
         });
+        updateAll();
+    }
+
+    function updateAll() {
         updateSkinsJson();
         updateManifest();
     }
 
     function updateSkinsJson() {
+        const name = document.getElementById('packName').value || "Pack";
         const data = {
-            serialize_name: document.getElementById('packName').value || "Pack",
-            localization_name: document.getElementById('packName').value || "Pack",
+            serialize_name: name,
+            localization_name: name,
             skins: selectedFiles.map((s, i) => ({
                 localization_name: s.name,
-                geometry: "geometry.humanoid.custom",
+                geometry: s.geometry,
                 texture: `skin_${i}.png`,
                 type: "free"
             }))
@@ -259,6 +302,7 @@ HTML_TEMPLATE = '''
         formData.append('count', selectedFiles.length);
 
         const res = await fetch('/generate', { method: 'POST', body: formData });
+        if (!res.ok) { alert("Error generating pack!"); return; }
         const blob = await res.blob();
         const a = document.createElement('a');
         a.href = window.URL.createObjectURL(blob);
@@ -266,62 +310,97 @@ HTML_TEMPLATE = '''
         a.click();
     }
     
-    updateManifest();
+    updateAll();
 </script>
 </body>
 </html>
 '''
 
 # --- BACKEND ---
-def get_skin_info(img_path):
-    with Image.open(img_path) as img:
-        img = img.convert("RGBA")
-        geo = "geometry.humanoid.custom"
-        if img.size == (64, 64):
-            pixel = img.getpixel((54, 20))
-            if pixel[3] == 0: geo = "geometry.humanoid.customSlim"
-        face = img.crop((8, 8, 16, 16)).resize((64, 64), Image.NEAREST)
-        return geo, face
+def process_skin_image(img_bytes):
+    """Xử lý ảnh skin và phát hiện Slim/Classic ( Steve / Alex )"""
+    img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
+    geo = "geometry.humanoid.custom"
+    
+    if img.size == (64, 64):
+        # Tọa độ (54, 20) là điểm phân biệt giữa tay Steve (4px) và Alex (3px)
+        pixel = img.getpixel((54, 20))
+        if pixel[3] == 0:
+            geo = "geometry.humanoid.customSlim"
+            
+    face = img.crop((8, 8, 16, 16)).resize((64, 64), Image.NEAREST)
+    face_io = io.BytesIO()
+    face.save(face_io, format='PNG')
+    
+    return geo, face_io.getvalue()
 
 @app.route("/")
-def index(): return render_template_string(HTML_TEMPLATE)
+def index():
+    return render_template_string(HTML_TEMPLATE)
 
 @app.route("/generate", methods=["POST"])
 def generate():
-    name = request.form.get('packName', 'Pack')
-    desc = request.form.get('packDesc', '')
-    ver = [int(x) for x in request.form.get('packVer', '1,0,0').split(',')]
-    eng = [int(x) for x in request.form.get('minEngine', '1,26,3').split(',')]
-    u1, u2 = request.form.get('u1'), request.form.get('u2')
-    count = int(request.form.get('count', 0))
-    
-    mem = io.BytesIO()
-    with zipfile.ZipFile(mem, 'w') as zf:
-        sj = {"serialize_name": name, "localization_name": name, "skins": []}
-        first_face = None
-        for i in range(count):
-            f = request.files.get(f'skin_{i}')
-            sname = request.form.get(f'name_{i}', f'Skin {i}')
-            if f:
-                path = f"t_{i}.png"
-                f.save(path)
-                geo, face = get_skin_info(path)
-                if i == 0: first_face = face
-                zf.write(path, f"skin_{i}.png")
-                sj["skins"].append({"localization_name": sname, "geometry": geo, "texture": f"skin_{i}.png", "type": "free"})
-                os.remove(path)
+    try:
+        name = request.form.get('packName', 'Pack')
+        desc = request.form.get('packDesc', 'Skin Pack')
+        ver = [int(x) for x in request.form.get('packVer', '1,0,0').split(',')]
+        eng = [int(x) for x in request.form.get('minEngine', '1,26,3').split(',')]
+        u1, u2 = request.form.get('u1'), request.form.get('u2')
+        count = int(request.form.get('count', 0))
         
-        cicon = request.files.get('customIcon')
-        if cicon: zf.writestr("pack_icon.png", cicon.read())
-        elif first_face:
-            b = io.BytesIO(); first_face.save(b, 'PNG')
-            zf.writestr("pack_icon.png", b.getvalue())
+        mem = io.BytesIO()
+        with zipfile.ZipFile(mem, 'w') as zf:
+            sj = {"serialize_name": name, "localization_name": name, "skins": []}
+            first_face_bytes = None
+            
+            for i in range(count):
+                f = request.files.get(f'skin_{i}')
+                sname = request.form.get(f'name_{i}', f'Skin {i}')
+                if f:
+                    img_bytes = f.read()
+                    geo, face_bytes = process_skin_image(img_bytes)
+                    if i == 0: first_face_bytes = face_bytes
+                    
+                    zf.writestr(f"skin_{i}.png", img_bytes)
+                    sj["skins"].append({
+                        "localization_name": sname,
+                        "geometry": geo,
+                        "texture": f"skin_{i}.png",
+                        "type": "free"
+                    })
 
-        zf.writestr("skins.json", json.dumps(sj, indent=4))
-        mani = {"format_version": 2, "header": {"name": name, "description": desc, "uuid": u1, "version": ver, "min_engine_version": eng}, "modules": [{"type": "skin_pack", "uuid": u2, "version": ver}]}
-        zf.writestr("manifest.json", json.dumps(mani, indent=4))
-        zf.writestr("texts/en_US.lang", f"skinpack.{name}={name}")
-    mem.seek(0)
-    return send_file(mem, download_name=f"{name}.mcpack", as_attachment=True)
+            cicon = request.files.get('customIcon')
+            if cicon:
+                zf.writestr("pack_icon.png", cicon.read())
+            elif first_face_bytes:
+                zf.writestr("pack_icon.png", first_face_bytes)
 
-if __name__ == "__main__": app.run(debug=True)
+            zf.writestr("skins.json", json.dumps(sj, indent=4))
+            
+            mani = {
+                "format_version": 2,
+                "header": {
+                    "name": name,
+                    "description": desc,
+                    "uuid": u1,
+                    "version": ver,
+                    "min_engine_version": eng
+                },
+                "modules": [{"type": "skin_pack", "uuid": u2, "version": ver}]
+            }
+            zf.writestr("manifest.json", json.dumps(mani, indent=4))
+            zf.writestr("texts/en_US.lang", f"skinpack.{name}={name}")
+            zf.writestr("texts/languages.json", json.dumps(["en_US"], indent=4))
+
+        mem.seek(0)
+        return send_file(
+            mem, 
+            mimetype='application/octet-stream',
+            as_attachment=True, 
+            download_name=f"{name}.mcpack"
+        )
+    except Exception as e:
+        return str(e), 500
+
+if __name__ == "__main__":
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
